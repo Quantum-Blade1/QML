@@ -1,0 +1,402 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{mathptmx}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{braket}
+\usepackage{tikz}
+\usepackage{quantikz}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{xcolor}
+
+\definecolor{circuitblue}{RGB}{40,80,160}
+\hypersetup{colorlinks=true,linkcolor=circuitblue,urlcolor=circuitblue,citecolor=circuitblue}
+
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}[section]
+\newtheorem{example}{Example}[section]
+
+\theoremstyle{remark}
+\newtheorem*{intuition}{Intuition}
+\newtheorem*{keypoint}{Key Point}
+
+\newcounter{exercise}[section]
+\newenvironment{exercise}{\refstepcounter{exercise}\par\medskip\noindent\textbf{Exercise \theexercise.}\rmfamily}{\medskip}
+
+\pagestyle{plain}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{6pt}
+
+\begin{document}
+
+{\LARGE \textbf{Lab 5: Quantum Classifier}}\\[8pt]
+{\large QML}\\[12pt]
+\hrule
+
+\vspace{16pt}
+
+\section{introduction}
+
+this is it --- the capstone lab. we r building actual quantum machine learning classifiers and comparing them head-to-head with the classical baselines from lab 4. u'll implement two approaches:
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{variational quantum classifier (VQC)} --- a parameterized quantum circuit trained with gradient descent, similar to a neural network
+  \item \textbf{quantum support vector classifier (QSVC)} --- uses a quantum kernel computed on a quantum computer, plugged into a classical SVM
+\end{enumerate}
+
+both approaches use quantum feature maps to encode classical data into quantum states. the question is: does the quantum feature map provide any advantage over classical feature maps?
+
+by the end of this lab u should be able to:
+\begin{itemize}[leftmargin=*]
+  \item build quantum feature maps (data encoding circuits)
+  \item implement a VQC from scratch using qiskit
+  \item compute quantum kernel matrices
+  \item train a QSVC using the precomputed kernel workflow from lab 4
+  \item rigorously compare quantum vs classical classifiers
+\end{itemize}
+
+\begin{keypoint}
+we r using the same iris dataset (binary, 2 features) as lab 4. same preprocessing, same train/test split. this way the comparison is fair.
+\end{keypoint}
+
+\section{quantum feature maps}
+
+\subsection{encoding classical data}
+
+the first step in any quantum ML pipeline: encode classical data $x \in \mathbb{R}^d$ into a quantum state $\ket{\phi(x)}$. this is done by a parameterized circuit where the parameters r set by the data.
+
+\begin{definition}
+a \textbf{quantum feature map} is a unitary $U(x)$ that maps classical data $x$ to a quantum state:
+\[
+\ket{\phi(x)} = U(x)\ket{0}^{\otimes n}
+\]
+\end{definition}
+
+the most common feature map is the \textbf{ZZ feature map}. for 2 qubits and 2 features $(x_1, x_2)$:
+
+\begin{center}
+\begin{quantikz}
+\lstick{$q_0$} & \gate{H} & \gate{R_z(x_1)} & \ctrl{1} & \qw & \ctrl{1} & \qw \\
+\lstick{$q_1$} & \gate{H} & \gate{R_z(x_2)} & \targ{} & \gate{R_z(x_1 x_2)} & \targ{} & \qw
+\end{quantikz}
+\end{center}
+
+the H gates create superposition. the $R_z(x_i)$ gates encode individual features. the CNOT-$R_z$-CNOT block encodes the interaction $x_1 \cdot x_2$. this is important bcs it means the feature map captures correlations between features, not just individual features.
+
+another option is the \textbf{angle encoding} feature map, which is simpler:
+
+\begin{center}
+\begin{quantikz}
+\lstick{$q_0$} & \gate{R_y(x_1)} & \gate{R_z(x_1)} & \qw \\
+\lstick{$q_1$} & \gate{R_y(x_2)} & \gate{R_z(x_2)} & \qw
+\end{quantikz}
+\end{center}
+
+and u can repeat the feature map multiple times (called ``data re-uploading'') to make it more expressive:
+
+\begin{center}
+\begin{quantikz}
+\lstick{$q_0$} & \gate{H} & \gate{R_z(x_1)} & \ctrl{1} & \qw & \ctrl{1} & \gate{H} & \gate{R_z(x_1)} & \ctrl{1} & \qw & \ctrl{1} & \qw \\
+\lstick{$q_1$} & \gate{H} & \gate{R_z(x_2)} & \targ{} & \gate{R_z(x_1 x_2)} & \targ{} & \gate{H} & \gate{R_z(x_2)} & \targ{} & \gate{R_z(x_1 x_2)} & \targ{} & \qw
+\end{quantikz}
+\end{center}
+
+\begin{exercise}
+\textbf{building feature maps.}
+\begin{enumerate}[leftmargin=*]
+  \item implement the ZZ feature map for 2 qubits manually:
+    \begin{itemize}
+      \item create a \texttt{QuantumCircuit(2)}
+      \item apply H to both qubits
+      \item apply $R_z(x_1)$ to qubit 0 and $R_z(x_2)$ to qubit 1
+      \item apply CNOT(0,1), then $R_z(x_1 \cdot x_2)$ on qubit 1, then CNOT(0,1)
+    \end{itemize}
+  \item also implement the angle encoding feature map
+  \item test both with a sample data point, e.g., $x = (0.5, -0.3)$
+  \item use the statevector simulator to get $\ket{\phi(x)}$ for each feature map
+  \item try a few different data points and see how the output states differ
+\end{enumerate}
+
+u can also use qiskit's built-in feature maps: \texttt{ZZFeatureMap} and \texttt{ZFeatureMap} from \texttt{qiskit.circuit.library}. compare ur manual implementation with the built-in one.
+\end{exercise}
+
+\section{quantum kernel method (QSVC)}
+
+\subsection{the quantum kernel}
+
+the quantum kernel between two data points $x$ and $x'$ is:
+\[
+k(x, x') = |\braket{\phi(x)|\phi(x')}|^2
+\]
+
+this measures how similar the quantum states r for two different data points. to compute this on a quantum computer, we use the following circuit:
+
+\begin{center}
+\begin{quantikz}
+\lstick{$\ket{0}$} & \gate[2]{U(x)} & \gate[2]{U^\dagger(x')} & \meter{} \\
+\lstick{$\ket{0}$} & \qw & \qw & \meter{}
+\end{quantikz}
+\end{center}
+
+u apply $U(x)$ to encode the first data point, then $U^\dagger(x')$ to ``undo'' the second data point. then u measure: the probability of getting all zeros is exactly $|\braket{\phi(x)|\phi(x')}|^2$.
+
+\begin{intuition}
+if $x = x'$, the circuit does $U(x)U^\dagger(x) = I$, so u always measure $\ket{00\ldots0}$ and the kernel is 1. if $x$ and $x'$ r very different, the states will be orthogonal and the kernel will be close to 0. so the kernel measures similarity in quantum state space.
+\end{intuition}
+
+\begin{exercise}
+\textbf{computing the quantum kernel.}
+\begin{enumerate}[leftmargin=*]
+  \item write a function \texttt{quantum\_kernel(x, x\_prime, feature\_map)} that:
+    \begin{itemize}
+      \item applies the feature map $U(x)$
+      \item applies the inverse feature map $U^\dagger(x')$
+      \item measures all qubits
+      \item returns the probability of the all-zeros outcome
+    \end{itemize}
+  \item test it: compute $k(x, x)$ for some point $x$. u should get $\approx 1$.
+  \item compute $k(x, x')$ for two very different points. should be much less than 1.
+  \item now write a function \texttt{quantum\_kernel\_matrix(X1, X2, feature\_map)} that computes the full kernel matrix. this requires $|X1| \times |X2|$ circuit evaluations.
+  \item compute the kernel matrix for the training data. visualize it as a heatmap. compare with the RBF kernel heatmap from lab 4.
+\end{enumerate}
+\end{exercise}
+
+\begin{exercise}
+\textbf{training QSVC.}
+\begin{enumerate}[leftmargin=*]
+  \item compute the quantum kernel matrix for training data: $K_{\text{train}}(i,j) = k(x_i, x_j)$
+  \item compute the quantum kernel matrix for test data: $K_{\text{test}}(i,j) = k(x_i^{\text{test}}, x_j^{\text{train}})$
+  \item use \texttt{SVC(kernel='precomputed')} from sklearn (exactly like exercise in lab 4)
+  \item train: \texttt{.fit(K\_train, y\_train)}
+  \item predict: \texttt{.predict(K\_test)}
+  \item report test accuracy
+  \item compare with ur classical SVM baseline from lab 4
+\end{enumerate}
+
+use the ZZ feature map with 1 repetition first. then try 2 repetitions. does more repetitions help?
+\end{exercise}
+
+\section{variational quantum classifier (VQC)}
+
+\subsection{the architecture}
+
+a VQC has three parts:
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{feature map} $U(x)$ --- encodes the input data (same as before)
+  \item \textbf{variational ansatz} $V(\theta)$ --- parameterized circuit with trainable parameters
+  \item \textbf{measurement} --- measure one qubit and interpret as the class label
+\end{enumerate}
+
+the full circuit for a 2-qubit VQC:
+
+\begin{center}
+\begin{quantikz}
+\lstick{$\ket{0}$} & \gate[2]{U(x)} & \gate{R_y(\theta_1)} & \ctrl{1} & \gate{R_y(\theta_3)} & \meter{} \\
+\lstick{$\ket{0}$} & \qw & \gate{R_y(\theta_2)} & \targ{} & \gate{R_y(\theta_4)} & \qw
+\end{quantikz}
+\end{center}
+
+the feature map encodes the data, the ansatz has trainable parameters $\theta$, and we measure qubit 0. if $P(\ket{0}) > 0.5$, predict class 0; otherwise predict class 1.
+
+the ansatz can have multiple layers. a single layer typically has $R_y$ rotations on each qubit followed by CNOT entangling gates. here's a 2-layer ansatz:
+
+\begin{center}
+\begin{quantikz}
+\lstick{$q_0$} & \gate{R_y(\theta_1)} & \ctrl{1} & \gate{R_y(\theta_3)} & \ctrl{1} & \qw \\
+\lstick{$q_1$} & \gate{R_y(\theta_2)} & \targ{} & \gate{R_y(\theta_4)} & \targ{} & \qw
+\end{quantikz}
+\end{center}
+
+\subsection{training}
+
+training a VQC is an optimization problem:
+\[
+\min_\theta \mathcal{L}(\theta) = \min_\theta \frac{1}{m}\sum_{i=1}^{m} \ell\big(f_\theta(x_i),\; y_i\big)
+\]
+
+where $f_\theta(x)$ is the VQC's prediction and $\ell$ is a loss function (e.g., cross-entropy or MSE).
+
+the challenge: computing gradients of quantum circuits. we use the \textbf{parameter shift rule}:
+\[
+\frac{\partial}{\partial \theta_k} f(\theta) = \frac{1}{2}\left[f\left(\theta_k + \frac{\pi}{2}\right) - f\left(\theta_k - \frac{\pi}{2}\right)\right]
+\]
+
+this means: to compute the gradient w.r.t.\ one parameter, u run the circuit twice (with the parameter shifted by $\pm\pi/2$). for $p$ parameters, u need $2p$ circuit evaluations per gradient step.
+
+\begin{exercise}
+\textbf{building the VQC.}
+\begin{enumerate}[leftmargin=*]
+  \item build the VQC circuit manually:
+    \begin{itemize}
+      \item create a parameterized circuit with qiskit \texttt{Parameter} objects
+      \item first apply the ZZ feature map (with data parameters)
+      \item then apply a variational ansatz: 2 layers of $R_y$ rotations + CNOT entangling
+      \item add measurement on qubit 0
+    \end{itemize}
+  \item write a function \texttt{predict(x, theta)} that:
+    \begin{itemize}
+      \item binds the data parameters to $x$ and the variational parameters to $\theta$
+      \item runs the circuit on the qasm simulator
+      \item returns $P(\ket{0})$ as the prediction
+    \end{itemize}
+  \item test with random $\theta$ values. the predictions should be between 0 and 1.
+\end{enumerate}
+
+the circuit should look like this (feature map + 1-layer ansatz + measurement):
+
+\begin{center}
+\begin{quantikz}
+\lstick{$\ket{0}$} & \gate{H} & \gate{R_z(x_1)} & \ctrl{1} & \qw & \ctrl{1} & \gate{R_y(\theta_1)} & \ctrl{1} & \meter{} \\
+\lstick{$\ket{0}$} & \gate{H} & \gate{R_z(x_2)} & \targ{} & \gate{R_z(x_1 x_2)} & \targ{} & \gate{R_y(\theta_2)} & \targ{} & \qw
+\end{quantikz}
+\end{center}
+\end{exercise}
+
+\begin{exercise}
+\textbf{training the VQC.}
+\begin{enumerate}[leftmargin=*]
+  \item implement the loss function: binary cross-entropy
+    \[
+    \mathcal{L} = -\frac{1}{m}\sum_i \left[y_i \log(p_i) + (1-y_i)\log(1-p_i)\right]
+    \]
+    where $p_i = \texttt{predict}(x_i, \theta)$
+  \item implement the parameter shift rule to compute gradients:
+    \begin{itemize}
+      \item for each parameter $\theta_k$, compute the loss at $\theta_k + \pi/2$ and $\theta_k - \pi/2$
+      \item the gradient is the difference divided by 2
+    \end{itemize}
+  \item implement gradient descent:
+    \begin{itemize}
+      \item initialize $\theta$ randomly (small values, e.g., uniform in $[0, \pi]$)
+      \item learning rate: start with 0.1
+      \item run for 50--100 iterations
+      \item record the loss at each step
+    \end{itemize}
+  \item plot the training loss curve. does it converge?
+  \item compute test accuracy. how does it compare with the classical SVM?
+\end{enumerate}
+
+tips:
+\begin{itemize}[leftmargin=*]
+  \item training is slow bcs each gradient step requires $2p \times m$ circuit evaluations ($p$ parameters, $m$ training samples). use the statevector simulator to speed things up.
+  \item if training is too slow, subsample the training data (use 30--40 points).
+  \item try different random initializations --- variational circuits can get stuck in local minima.
+\end{itemize}
+\end{exercise}
+
+\begin{exercise}
+\textbf{VQC hyperparameters.}
+explore how these choices affect performance:
+\begin{enumerate}[leftmargin=*]
+  \item number of ansatz layers (1, 2, 3). more layers $=$ more parameters $=$ more expressive, but also harder to train and more noise.
+  \item feature map type: ZZ feature map vs angle encoding. which works better?
+  \item number of shots (100, 1000, 10000). more shots $=$ lower variance but slower.
+  \item learning rate (0.01, 0.1, 0.5). too high and it oscillates, too low and it's slow.
+  \item optimizer: try both vanilla gradient descent and COBYLA (\texttt{scipy.optimize.minimize} with \texttt{method='COBYLA'}). COBYLA is gradient-free so it might work better if gradients r noisy.
+\end{enumerate}
+\end{exercise}
+
+\section{the big comparison}
+
+\begin{exercise}
+\textbf{quantum vs classical showdown.}
+this is the main event. compile ur results into a comparison table:
+
+\begin{center}
+\begin{tabular}{|l|c|c|}
+\hline
+\textbf{classifier} & \textbf{test accuracy} & \textbf{training time} \\
+\hline
+classical linear SVM & & \\
+\hline
+classical RBF SVM & & \\
+\hline
+QSVC (ZZ feature map, 1 rep) & & \\
+\hline
+QSVC (ZZ feature map, 2 reps) & & \\
+\hline
+VQC (1 layer) & & \\
+\hline
+VQC (2 layers) & & \\
+\hline
+\end{tabular}
+\end{center}
+
+answer these questions:
+\begin{enumerate}[leftmargin=*]
+  \item does the quantum classifier beat the classical one on this dataset?
+  \item if not, does that mean quantum ML is useless? wt factors could change the outcome?
+  \item which quantum approach (VQC or QSVC) works better? why might that be?
+  \item wt's the computational cost comparison? how many circuit evaluations did QSVC require vs VQC?
+  \item if u added noise (from lab 3), how would it affect each quantum method?
+\end{enumerate}
+\end{exercise}
+
+\section{bonus: noisy quantum classifier}
+
+\begin{exercise}
+\textbf{running with noise.}
+\begin{enumerate}[leftmargin=*]
+  \item repeat the QSVC experiment but with a noisy simulator (depolarizing noise, $p = 0.01$ single-qubit, $p = 0.05$ CNOT)
+  \item how much does accuracy drop?
+  \item apply measurement error mitigation from lab 3 to the kernel computation
+  \item does mitigation help recover the accuracy?
+  \item now try ZNE on the kernel circuits. is it worth the extra computational cost?
+\end{enumerate}
+
+this exercise shows u the real challenge of near-term quantum ML: the noise can easily wipe out any advantage the quantum feature map might have.
+\end{exercise}
+
+\section{bonus: scaling up}
+
+\begin{exercise}
+\textbf{more features.}
+\begin{enumerate}[leftmargin=*]
+  \item repeat the QSVC experiment using all 4 iris features instead of 2 (u'll need 4 qubits)
+  \item does using more features help the quantum classifier?
+  \item compare the 4-feature quantum kernel with the 4-feature classical RBF kernel
+  \item the 4-qubit feature map lives in a $2^4 = 16$ dimensional Hilbert space. the RBF kernel implicitly uses infinite dimensions. discuss when the quantum approach might still win despite having ``fewer'' dimensions.
+\end{enumerate}
+
+4-qubit ZZ feature map (first layer only, without interaction terms for clarity):
+
+\begin{center}
+\begin{quantikz}
+\lstick{$q_0$} & \gate{H} & \gate{R_z(x_1)} & \ctrl{1} & \qw & \qw & \qw \\
+\lstick{$q_1$} & \gate{H} & \gate{R_z(x_2)} & \targ{} & \ctrl{1} & \qw & \qw \\
+\lstick{$q_2$} & \gate{H} & \gate{R_z(x_3)} & \qw & \targ{} & \ctrl{1} & \qw \\
+\lstick{$q_3$} & \gate{H} & \gate{R_z(x_4)} & \qw & \qw & \targ{} & \qw
+\end{quantikz}
+\end{center}
+\end{exercise}
+
+\section{final reflection}
+
+\begin{exercise}
+\textbf{course synthesis.}
+write a 1-page reflection addressing:
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{the pipeline}: trace the full QML pipeline from data preprocessing $\to$ feature map $\to$ quantum circuit $\to$ measurement $\to$ classical post-processing. where does quantum help? where is it classical?
+  \item \textbf{the bottleneck}: wt's the main practical limitation of quantum ML right now? (noise? number of qubits? training time? all of the above?)
+  \item \textbf{the promise}: under wt conditions might quantum ML provide a genuine advantage? think about data structure, feature space dimensionality, and kernel expressiveness.
+  \item \textbf{ur experience}: wt was the most surprising thing u learned in this course? wt would u want to explore further?
+\end{enumerate}
+\end{exercise}
+
+\section{submission}
+
+submit a jupyter notebook with:
+\begin{itemize}[leftmargin=*]
+  \item all exercises completed with code and output
+  \item the full comparison table filled in
+  \item kernel matrix heatmaps (quantum vs classical)
+  \item training loss curves for the VQC
+  \item decision boundary plots where possible
+  \item ur final reflection
+\end{itemize}
+
+this notebook should tell a complete story: classical baseline $\to$ quantum kernel $\to$ quantum variational $\to$ comparison $\to$ reflection.
+
+\end{document}
