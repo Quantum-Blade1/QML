@@ -59,8 +59,3 @@ the QGSS 2021 QML course is honestly one of the best structured intros to this f
 - [blogs and posts](resources/blogs.md) --- best blogs and engineering posts on QML
 - [courses and talks](resources/courses-and-talks.md) --- video lectures, MOOCs, conference talks
 - [community](resources/community.md) --- where to find QML people online
-
-
-## note
-
-notes r written in my own words, not copy pasted from anywhere. if u find mistakes, open an issue or DM me.
