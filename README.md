@@ -1,16 +1,16 @@
 # quantum machine learning
 
-> my personal deep-dive notes for the Qiskit Global Summer School 2021 — Quantum Machine Learning course
+> personal dive notes for the Qiskit Global Summer School - Quantum Machine Learning course
 
 ---
 
-## why this repo exists
+## this repo
 
-so QML is basically two hype cycles smashing into each other --- quantum computing and machine learning --- and most people on the internet r hyping it completely wrong. u got folks saying "quantum AI will solve everything" without understanding a single thing abt how a parameterized circuit actually trains or why barren plateaus make most of these architectures useless at scale. i wanted to actually learn the math behind all of this, not just vibe with it.
+so QML is basically two hype cycles smashing into each other -- quantum computing and machine learning -- and most people on the internet r hyping it completely wrong. u got folks saying "quantum AI will solve everything" without understanding a single thing abt how a parameterized circuit actually trains or why barren plateaus make most of these architectures useless at scale. i wanted to actually learn the math behind all of this, not just vibe with it.
 
-i already built [DQC](https://github.com/krishkumarsharma) (an MLIR-based quantum compiler) and [QCEC](https://github.com/krishkumarsharma) (formal verification for quantum circuits) so i have decent context on the compilation and hardware side of things. but the ML side? i knew bits and pieces --- variational circuits, QAOA, kernel methods --- but never sat down and went through it properly. this repo is me doing exactly that.
+i already built [DQC](https://github.com/krishkumarsharma) (an MLIR-based quantum compiler) and [QCEC](https://github.com/krishkumarsharma) (formal verification for quantum circuits) so i have decent context on the compilation and hardware side of things. but the ML side i knew bits and pieces -- variational circuits, QAOA, kernel methods -- but never sat down and went through it properly. this repo is me doing exactly that.
 
-the QGSS 2021 QML course is honestly one of the best structured intros to this field. 20 lectures covering everything from vector spaces to quantum GANs, plus 5 hands-on labs. im writing detailed LaTeX notes for every single lecture --- not copy pasting slides, but actually rewriting things in my own words with the math worked out properly. if smtg doesnt make sense to me i dig into the papers until it does.
+the QGSS 2021 QML course is honestly one of the best structured intros to this field. 20 lectures covering everything from vector spaces to quantum GANs, plus 5 hands-on labs. im writing detailed LaTeX notes for every single lecture -- not copy pasting slides, but actually rewriting things in my own words with the math worked out properly. if smtg doesnt make sense to me i dig into the papers until it does.
 
 ---
 
@@ -60,14 +60,6 @@ the QGSS 2021 QML course is honestly one of the best structured intros to this f
 - [courses and talks](resources/courses-and-talks.md) --- video lectures, MOOCs, conference talks
 - [community](resources/community.md) --- where to find QML people online
 
----
-
-## original course
-
-the full QGSS 2021 QML playlist is here:
-[youtube.com/playlist?list=PLOFEBzvs-VvqJwybFxkTiDzhf5E11p8BI](https://youtube.com/playlist?list=PLOFEBzvs-VvqJwybFxkTiDzhf5E11p8BI)
-
----
 
 ## note
 
