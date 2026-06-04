@@ -1,0 +1,86 @@
+\documentclass[11pt,a4paper]{article}
+
+% --- geometry ---
+\usepackage[margin=1in]{geometry}
+
+% --- font ---
+\usepackage{mathptmx}
+
+% --- math ---
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{braket}
+
+% --- diagrams ---
+\usepackage{tikz}
+\usepackage{quantikz}
+
+% --- formatting ---
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{xcolor}
+
+% --- colors ---
+\definecolor{circuitblue}{RGB}{40,80,160}
+
+% --- hyperref setup ---
+\hypersetup{
+    colorlinks=true,
+    linkcolor=circuitblue,
+    urlcolor=circuitblue,
+    citecolor=circuitblue
+}
+
+% --- theorem environments ---
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}[section]
+\newtheorem{example}{Example}[section]
+
+\theoremstyle{remark}
+\newtheorem*{intuition}{Intuition}
+\newtheorem*{keypoint}{Key Point}
+
+% --- page style ---
+\pagestyle{plain}
+
+% --- no paragraph indent, use spacing instead ---
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{6pt}
+
+\begin{document}
+
+% --- title block ---
+\begin{center}
+    {\LARGE \textbf{Lecture Title}}\\[8pt]
+    {\large Quantum Machine Learning}\\[12pt]
+    \hrule
+\end{center}
+
+\vspace{12pt}
+\tableofcontents
+\newpage
+
+% --- content starts here ---
+
+\section{Section Title}
+
+Your content here.
+
+\begin{definition}
+A definition goes here.
+\end{definition}
+
+\begin{intuition}
+An intuitive explanation goes here.
+\end{intuition}
+
+\begin{keypoint}
+A key takeaway goes here.
+\end{keypoint}
+
+\begin{example}
+A worked example goes here.
+\end{example}
+
+\end{document}
