@@ -1,0 +1,354 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{mathptmx}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{braket}
+\usepackage{tikz}
+\usepackage{quantikz}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{xcolor}
+
+\definecolor{circuitblue}{RGB}{40,80,160}
+\hypersetup{colorlinks=true,linkcolor=circuitblue,urlcolor=circuitblue,citecolor=circuitblue}
+
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}[section]
+\newtheorem{example}{Example}[section]
+
+\theoremstyle{remark}
+\newtheorem*{intuition}{Intuition}
+\newtheorem*{keypoint}{Key Point}
+
+\newcounter{exercise}[section]
+\newenvironment{exercise}{\refstepcounter{exercise}\par\medskip\noindent\textbf{Exercise \theexercise.}\rmfamily}{\medskip}
+
+\pagestyle{plain}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{6pt}
+
+\begin{document}
+
+{\LARGE \textbf{Lab 1: Quantum Circuits}}\\[8pt]
+{\large QML}\\[12pt]
+\hrule
+
+\vspace{16pt}
+
+\section{introduction}
+
+welcome to the first lab! in this session u will get ur hands dirty building quantum circuits from scratch using qiskit. the goal is to get comfortable with the basic workflow: create a circuit, add gates, simulate it, and look at the results.
+
+by the end of this lab u should be able to:
+\begin{itemize}[leftmargin=*]
+  \item create and manipulate quantum circuits in qiskit
+  \item build entangled states (bell states, GHZ states)
+  \item implement quantum teleportation
+  \item measure qubits in different bases
+  \item use the statevector simulator and the qasm simulator
+\end{itemize}
+
+\begin{keypoint}
+if u haven't installed qiskit yet, run \texttt{pip install qiskit} in ur terminal. we r using qiskit 1.x for this course. make sure u also have \texttt{qiskit-aer} installed for the simulators.
+\end{keypoint}
+
+\section{qiskit basics}
+
+\subsection{the workflow}
+
+every qiskit program follows the same basic pattern. here's wt u need to do:
+
+\begin{enumerate}[leftmargin=*]
+  \item import \texttt{QuantumCircuit} from \texttt{qiskit}
+  \item create a circuit object --- u specify how many qubits and how many classical bits u want
+  \item add gates to the circuit (hadamard, CNOT, etc.)
+  \item choose a backend (simulator or real device)
+  \item transpile and run
+  \item grab the results
+\end{enumerate}
+
+the two simulators we care about r:
+\begin{itemize}[leftmargin=*]
+  \item \textbf{StatevectorSimulator} --- gives u the full quantum state. great for debugging bcs u can see exactly wt the state looks like. not realistic tho, bcs on a real quantum computer u can't peek at the state.
+  \item \textbf{QasmSimulator} --- simulates actual measurements. u get a dictionary of counts, just like u would from a real device.
+\end{itemize}
+
+\subsection{single qubit gates}
+
+before we start building circuits, let's review the gates we'll use. u should already know these from lecture but here's a quick refresher.
+
+\begin{definition}
+the \textbf{Hadamard gate} $H$ maps $\ket{0} \to \frac{1}{\sqrt{2}}(\ket{0}+\ket{1})$ and $\ket{1} \to \frac{1}{\sqrt{2}}(\ket{0}-\ket{1})$. in matrix form:
+\[
+H = \frac{1}{\sqrt{2}}\begin{pmatrix} 1 & 1 \\ 1 & -1 \end{pmatrix}
+\]
+\end{definition}
+
+the Pauli gates r also important:
+\[
+X = \begin{pmatrix} 0 & 1 \\ 1 & 0 \end{pmatrix}, \quad
+Y = \begin{pmatrix} 0 & -i \\ i & 0 \end{pmatrix}, \quad
+Z = \begin{pmatrix} 1 & 0 \\ 0 & -1 \end{pmatrix}
+\]
+
+and for rotation we have $R_y(\theta)$ and $R_z(\theta)$ which will be super important later when we get to variational circuits.
+
+\subsection{two qubit gates}
+
+the big one is CNOT (also called CX). it flips the target qubit if the control qubit is $\ket{1}$.
+
+here's wt a simple circuit with H and CNOT looks like --- this is the circuit that creates a bell state:
+
+\begin{center}
+\begin{quantikz}
+\lstick{$q_0$} & \gate{H} & \ctrl{1} & \meter{} \\
+\lstick{$q_1$} & \qw & \targ{} & \meter{}
+\end{quantikz}
+\end{center}
+
+\begin{intuition}
+the H gate puts $q_0$ into superposition, and then the CNOT entangles $q_0$ and $q_1$. the result is $\frac{1}{\sqrt{2}}(\ket{00}+\ket{11})$, which is one of the four bell states. when u measure, u'll get either $00$ or $11$ with equal probability --- never $01$ or $10$. that's entanglement for u.
+\end{intuition}
+
+\begin{exercise}
+\textbf{ur first circuit.}
+create a quantum circuit with 2 qubits and 2 classical bits. apply a hadamard gate to qubit 0, then a CNOT with control on qubit 0 and target on qubit 1. add measurements to both qubits.
+
+steps:
+\begin{enumerate}[leftmargin=*]
+  \item import \texttt{QuantumCircuit} from qiskit
+  \item create \texttt{QuantumCircuit(2, 2)}
+  \item call \texttt{.h(0)} to add hadamard on qubit 0
+  \item call \texttt{.cx(0, 1)} for the CNOT
+  \item call \texttt{.measure([0,1], [0,1])} to measure both qubits
+  \item draw the circuit using \texttt{.draw('mpl')}
+\end{enumerate}
+
+run this on the qasm simulator with 1024 shots. plot a histogram of the results. u should see roughly 50/50 split between \texttt{00} and \texttt{11}.
+\end{exercise}
+
+\section{bell states}
+
+there r four bell states and they form a basis for the two-qubit space. every bell state is maximally entangled.
+
+\begin{align}
+\ket{\Phi^+} &= \frac{1}{\sqrt{2}}(\ket{00}+\ket{11}) \\
+\ket{\Phi^-} &= \frac{1}{\sqrt{2}}(\ket{00}-\ket{11}) \\
+\ket{\Psi^+} &= \frac{1}{\sqrt{2}}(\ket{01}+\ket{10}) \\
+\ket{\Psi^-} &= \frac{1}{\sqrt{2}}(\ket{01}-\ket{10})
+\end{align}
+
+the trick to building all four is to start with the right input state and then apply H + CNOT.
+
+circuit for $\ket{\Phi^-}$:
+
+\begin{center}
+\begin{quantikz}
+\lstick{$q_0$} & \gate{X} & \gate{H} & \ctrl{1} & \qw \\
+\lstick{$q_1$} & \qw & \qw & \targ{} & \qw
+\end{quantikz}
+\end{center}
+
+circuit for $\ket{\Psi^+}$:
+
+\begin{center}
+\begin{quantikz}
+\lstick{$q_0$} & \gate{H} & \ctrl{1} & \qw \\
+\lstick{$q_1$} & \gate{X} & \targ{} & \qw
+\end{quantikz}
+\end{center}
+
+\begin{exercise}
+\textbf{all four bell states.}
+build circuits for all four bell states. for each one:
+\begin{enumerate}[leftmargin=*]
+  \item construct the circuit (no measurements yet)
+  \item use the statevector simulator to get the output state
+  \item verify the state vector matches the expected bell state
+  \item then add measurements and run on qasm simulator with 4096 shots
+  \item record the measurement outcomes
+\end{enumerate}
+
+hint: $\ket{\Phi^+}$ is just H + CNOT on $\ket{00}$. for $\ket{\Phi^-}$, apply X to qubit 0 first. for $\ket{\Psi^+}$, apply X to qubit 1 first. for $\ket{\Psi^-}$, apply X to both qubits first.
+
+write down the mapping: which input state $\to$ which bell state?
+\end{exercise}
+
+\section{GHZ states}
+
+a GHZ state is the generalization of a bell state to $n$ qubits:
+\[
+\ket{\text{GHZ}_n} = \frac{1}{\sqrt{2}}(\ket{0}^{\otimes n} + \ket{1}^{\otimes n})
+\]
+
+for 3 qubits that's $\frac{1}{\sqrt{2}}(\ket{000}+\ket{111})$. the circuit is pretty straightforward:
+
+\begin{center}
+\begin{quantikz}
+\lstick{$q_0$} & \gate{H} & \ctrl{1} & \qw & \qw \\
+\lstick{$q_1$} & \qw & \targ{} & \ctrl{1} & \qw \\
+\lstick{$q_2$} & \qw & \qw & \targ{} & \qw
+\end{quantikz}
+\end{center}
+
+\begin{intuition}
+the pattern is: H on the first qubit, then a chain of CNOTs. each CNOT spreads the entanglement to one more qubit. for $n$ qubits u need 1 H gate and $n-1$ CNOT gates.
+\end{intuition}
+
+\begin{exercise}
+\textbf{building GHZ states.}
+\begin{enumerate}[leftmargin=*]
+  \item build a 3-qubit GHZ circuit. verify the statevector is $\frac{1}{\sqrt{2}}(\ket{000}+\ket{111})$.
+  \item build a 5-qubit GHZ circuit. measure it and check u only get $\ket{00000}$ and $\ket{11111}$.
+  \item write a function that takes $n$ as input and returns an $n$-qubit GHZ circuit. the function should:
+    \begin{itemize}
+      \item create a \texttt{QuantumCircuit(n)}
+      \item apply H to qubit 0
+      \item loop from $i=0$ to $n-2$ and apply CNOT with control $i$ and target $i+1$
+      \item return the circuit
+    \end{itemize}
+  \item test ur function for $n = 2, 3, 4, 5, 8$. for each one, verify with statevector simulator.
+\end{enumerate}
+\end{exercise}
+
+\section{measurement in different bases}
+
+so far we've only measured in the computational basis ($Z$ basis). but sometimes u want to measure in other bases, like the $X$ basis or the $Y$ basis.
+
+the trick: u can't directly measure in a different basis in qiskit. instead, u apply a rotation before measuring that transforms the basis u care about into the computational basis.
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{$X$ basis measurement}: apply H before measuring. this works bcs H maps $\ket{+} \to \ket{0}$ and $\ket{-} \to \ket{1}$.
+  \item \textbf{$Y$ basis measurement}: apply $S^\dagger$ then H before measuring.
+\end{itemize}
+
+circuit for measuring in the $X$ basis:
+
+\begin{center}
+\begin{quantikz}
+\lstick{$q_0$} & \qw & \gate{H} & \meter{}
+\end{quantikz}
+\end{center}
+
+circuit for measuring in the $Y$ basis:
+
+\begin{center}
+\begin{quantikz}
+\lstick{$q_0$} & \qw & \gate{S^\dagger} & \gate{H} & \meter{}
+\end{quantikz}
+\end{center}
+
+\begin{exercise}
+\textbf{basis measurements.}
+\begin{enumerate}[leftmargin=*]
+  \item prepare the state $\ket{+} = \frac{1}{\sqrt{2}}(\ket{0}+\ket{1})$ by applying H to $\ket{0}$.
+  \item measure it in the $Z$ basis. wt do u get? (should be 50/50)
+  \item measure it in the $X$ basis (apply H before measurement). wt do u get now? (should be 100\% one outcome)
+  \item explain why this makes sense.
+  \item now prepare $\ket{-} = \frac{1}{\sqrt{2}}(\ket{0}-\ket{1})$ (apply X then H to $\ket{0}$). measure in the $X$ basis. how does this differ from measuring $\ket{+}$?
+\end{enumerate}
+\end{exercise}
+
+\section{quantum teleportation}
+
+this is the big one for this lab. quantum teleportation lets u transfer a quantum state from one qubit to another using entanglement and classical communication.
+
+the protocol:
+\begin{enumerate}[leftmargin=*]
+  \item alice and bob share a bell state $\ket{\Phi^+}$
+  \item alice has a qubit in some unknown state $\ket{\psi} = \alpha\ket{0}+\beta\ket{1}$ that she wants to send to bob
+  \item alice applies CNOT (her qubit controlling the bell state qubit) then H on her qubit
+  \item alice measures her two qubits
+  \item based on the measurement results, bob applies corrections (X and/or Z gates)
+  \item bob's qubit is now in state $\ket{\psi}$
+\end{enumerate}
+
+here's the full circuit:
+
+\begin{center}
+\begin{quantikz}
+\lstick{$\ket{\psi}$} & \qw & \qw & \ctrl{1} & \gate{H} & \meter{} & \qw & \qw \\
+\lstick{$q_1$} & \gate{H} & \ctrl{1} & \targ{} & \qw & \meter{} & \qw & \qw \\
+\lstick{$q_2$} & \qw & \targ{} & \qw & \qw & \qw & \gate{X} & \gate{Z}
+\end{quantikz}
+\end{center}
+
+the first two gates (H on $q_1$, CNOT on $q_1 \to q_2$) create the bell pair. then the CNOT and H on the top two qubits r alice's operations. the X and Z on the bottom qubit r bob's corrections (controlled by alice's measurement results).
+
+\begin{exercise}
+\textbf{quantum teleportation.}
+\begin{enumerate}[leftmargin=*]
+  \item build the teleportation circuit step by step:
+    \begin{itemize}
+      \item create a 3-qubit circuit with 2 classical bits (for alice's measurements)
+      \item prepare the state to teleport on qubit 0 --- use $R_y(\pi/4)$ to make smtg interesting
+      \item save the statevector of qubit 0 (u'll compare later)
+      \item create the bell pair between qubits 1 and 2
+      \item apply CNOT(0,1) then H(0)
+      \item measure qubits 0 and 1
+      \item apply conditional X and Z gates on qubit 2
+    \end{itemize}
+  \item for the conditional gates, in qiskit u can use \texttt{.c\_if()} or the newer \texttt{if\_test} context manager. describe wt each classical bit controls.
+  \item verify that after teleportation, qubit 2 ends up in the same state as qubit 0 started in. u can do this by:
+    \begin{itemize}
+      \item running many shots and comparing measurement statistics
+      \item or using the statevector simulator (tho this is a bit tricky with mid-circuit measurements)
+    \end{itemize}
+  \item try teleporting different states: $\ket{0}$, $\ket{1}$, $\ket{+}$, $R_y(\pi/3)\ket{0}$.
+\end{enumerate}
+\end{exercise}
+
+\section{putting it all together}
+
+\begin{exercise}
+\textbf{circuit challenge.}
+build a circuit that:
+\begin{enumerate}[leftmargin=*]
+  \item creates a 4-qubit GHZ state
+  \item measures qubits 0 and 1 in the $X$ basis
+  \item measures qubits 2 and 3 in the $Z$ basis
+  \item runs on the qasm simulator with 8192 shots
+\end{enumerate}
+
+analyze the correlations between the measurement outcomes. r the $X$-basis results correlated with the $Z$-basis results? explain why or why not.
+
+the circuit should look smtg like this:
+
+\begin{center}
+\begin{quantikz}
+\lstick{$q_0$} & \gate{H} & \ctrl{1} & \qw & \qw & \gate{H} & \meter{} \\
+\lstick{$q_1$} & \qw & \targ{} & \ctrl{1} & \qw & \gate{H} & \meter{} \\
+\lstick{$q_2$} & \qw & \qw & \targ{} & \ctrl{1} & \qw & \meter{} \\
+\lstick{$q_3$} & \qw & \qw & \qw & \targ{} & \qw & \meter{}
+\end{quantikz}
+\end{center}
+\end{exercise}
+
+\begin{exercise}
+\textbf{bonus: superdense coding.}
+superdense coding is the reverse of teleportation --- u send 2 classical bits using 1 qubit (plus a shared bell pair).
+
+the protocol:
+\begin{itemize}[leftmargin=*]
+  \item alice and bob share $\ket{\Phi^+}$
+  \item alice encodes her 2-bit message by applying I, X, Z, or XZ to her qubit
+  \item alice sends her qubit to bob
+  \item bob applies CNOT then H and measures both qubits to recover the message
+\end{itemize}
+
+implement this for all four possible messages (00, 01, 10, 11). verify bob always recovers the correct message.
+\end{exercise}
+
+\section{submission}
+
+submit a jupyter notebook with:
+\begin{itemize}[leftmargin=*]
+  \item all exercises completed with code and output
+  \item circuit diagrams (use \texttt{.draw('mpl')})
+  \item brief explanations of wt u observe
+  \item the teleportation circuit working for at least 2 different input states
+\end{itemize}
+
+\end{document}
