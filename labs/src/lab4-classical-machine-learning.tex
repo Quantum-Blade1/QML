@@ -1,0 +1,314 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{mathptmx}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{braket}
+\usepackage{tikz}
+\usepackage{quantikz}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{xcolor}
+
+\definecolor{circuitblue}{RGB}{40,80,160}
+\hypersetup{colorlinks=true,linkcolor=circuitblue,urlcolor=circuitblue,citecolor=circuitblue}
+
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}[section]
+\newtheorem{example}{Example}[section]
+
+\theoremstyle{remark}
+\newtheorem*{intuition}{Intuition}
+\newtheorem*{keypoint}{Key Point}
+
+\newcounter{exercise}[section]
+\newenvironment{exercise}{\refstepcounter{exercise}\par\medskip\noindent\textbf{Exercise \theexercise.}\rmfamily}{\medskip}
+
+\pagestyle{plain}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{6pt}
+
+\begin{document}
+
+{\LARGE \textbf{Lab 4: Classical Machine Learning}}\\[8pt]
+{\large QML}\\[12pt]
+\hrule
+
+\vspace{16pt}
+
+\section{introduction}
+
+before we can do quantum ML, we need to make sure u have a solid handle on classical ML. this lab is a refresher (or introduction, depending on ur background) on the key classical techniques that have quantum analogues.
+
+specifically, we're focusing on:
+\begin{itemize}[leftmargin=*]
+  \item support vector machines (SVMs) --- bcs quantum kernel methods r a direct generalization
+  \item kernel methods --- bcs the kernel trick is \textit{exactly} wt quantum feature maps exploit
+  \item cross-validation --- bcs u need this to evaluate any model properly
+  \item decision boundaries --- bcs visualizing them helps build intuition
+\end{itemize}
+
+we'll use scikit-learn (sklearn) for everything. if u don't have it: \texttt{pip install scikit-learn matplotlib numpy}.
+
+\begin{keypoint}
+the whole point of this lab is to set up the classical baselines we'll compare against in lab 5. so take it seriously --- ur quantum classifier needs to beat (or at least match) the classical SVM to be interesting.
+\end{keypoint}
+
+\section{the dataset}
+
+we're using the iris dataset. it's a classic ML dataset with:
+\begin{itemize}[leftmargin=*]
+  \item 150 samples
+  \item 4 features: sepal length, sepal width, petal length, petal width
+  \item 3 classes: setosa, versicolor, virginica
+\end{itemize}
+
+for most of our experiments we'll simplify things:
+\begin{itemize}[leftmargin=*]
+  \item use only 2 features (petal length and petal width) for visualization
+  \item use only 2 classes (versicolor and virginica) for binary classification
+\end{itemize}
+
+this gives us a nice 2D binary classification problem that's easy to visualize and still nontrivial (the two classes overlap a bit).
+
+\begin{exercise}
+\textbf{loading and exploring the data.}
+\begin{enumerate}[leftmargin=*]
+  \item load the iris dataset using \texttt{sklearn.datasets.load\_iris()}
+  \item extract only classes 1 and 2 (versicolor and virginica)
+  \item extract only features 2 and 3 (petal length and petal width) --- these r the most discriminative
+  \item standardize the features using \texttt{sklearn.preprocessing.StandardScaler} (subtract mean, divide by std)
+  \item plot the 2D scatter plot with different colors for each class
+  \item split into 70\% train and 30\% test using \texttt{train\_test\_split} with \texttt{random\_state=42}
+  \item report: how many training samples? how many test samples? r the classes balanced?
+\end{enumerate}
+\end{exercise}
+
+\section{support vector machines}
+
+\subsection{the idea}
+
+an SVM finds the hyperplane that separates the two classes with maximum margin. the ``support vectors'' r the data points closest to the decision boundary --- they r the ones that actually determine the boundary.
+
+\begin{definition}
+given training data $\{(x_i, y_i)\}$ where $y_i \in \{-1, +1\}$, the \textbf{linear SVM} solves:
+\[
+\min_{w, b} \frac{1}{2}\|w\|^2 \quad \text{subject to} \quad y_i(w \cdot x_i + b) \geq 1 \quad \forall i
+\]
+the decision boundary is $w \cdot x + b = 0$ and the margin is $\frac{2}{\|w\|}$.
+\end{definition}
+
+in practice we use the soft-margin version which allows some misclassification. the regularization parameter $C$ controls the tradeoff: high $C$ = less tolerance for misclassification, low $C$ = wider margin but more errors.
+
+\begin{exercise}
+\textbf{linear SVM.}
+\begin{enumerate}[leftmargin=*]
+  \item import \texttt{SVC} from \texttt{sklearn.svm}
+  \item train a linear SVM on the training data: \texttt{SVC(kernel='linear', C=1.0)}
+  \item call \texttt{.fit(X\_train, y\_train)}
+  \item compute accuracy on both train and test sets using \texttt{.score()}
+  \item how many support vectors does the model have? (check \texttt{.support\_vectors\_})
+  \item visualize the decision boundary. here's how:
+    \begin{itemize}
+      \item create a mesh grid over the feature space using \texttt{np.meshgrid}
+      \item predict the class for each point in the grid
+      \item use \texttt{plt.contourf} to color the regions
+      \item overlay the training data points
+      \item highlight the support vectors
+    \end{itemize}
+  \item try $C = 0.01, 0.1, 1, 10, 100$. how does the decision boundary change?
+\end{enumerate}
+\end{exercise}
+
+\section{the kernel trick}
+
+\subsection{why we need kernels}
+
+wt if the data isn't linearly separable? one option: map the data to a higher-dimensional space where it \textit{is} linearly separable.
+
+\begin{example}
+consider 1D data: class $-1$ at $x \in [-2, -1] \cup [1, 2]$ and class $+1$ at $x \in [-0.5, 0.5]$. this isn't linearly separable in 1D. but map $x \to (x, x^2)$ and suddenly it is! the classes r separated by a horizontal line in the 2D space.
+\end{example}
+
+the problem: computing in high-dimensional spaces is expensive. the kernel trick avoids this by computing inner products in the high-dimensional space without explicitly mapping to it.
+
+\begin{definition}
+a \textbf{kernel function} $k(x_i, x_j) = \phi(x_i) \cdot \phi(x_j)$ computes the inner product of the mapped features without computing $\phi$ explicitly. common kernels:
+\begin{itemize}[leftmargin=*]
+  \item linear: $k(x, x') = x \cdot x'$
+  \item polynomial: $k(x, x') = (x \cdot x' + c)^d$
+  \item RBF (Gaussian): $k(x, x') = \exp(-\gamma\|x - x'\|^2)$
+\end{itemize}
+\end{definition}
+
+\begin{intuition}
+the RBF kernel implicitly maps to an \textit{infinite}-dimensional space. that's wild. and bcs of the kernel trick, computing with it is no harder than computing with a finite kernel. this is wt makes kernel methods so powerful --- and it's the same principle behind quantum kernels. a quantum computer can compute kernels in exponentially large feature spaces.
+\end{intuition}
+
+\begin{exercise}
+\textbf{kernel comparison.}
+\begin{enumerate}[leftmargin=*]
+  \item train SVMs with different kernels on the iris data:
+    \begin{itemize}
+      \item linear: \texttt{SVC(kernel='linear')}
+      \item polynomial degree 2: \texttt{SVC(kernel='poly', degree=2)}
+      \item polynomial degree 3: \texttt{SVC(kernel='poly', degree=3)}
+      \item RBF: \texttt{SVC(kernel='rbf')}
+    \end{itemize}
+  \item for each kernel, report train and test accuracy
+  \item visualize the decision boundary for each kernel (4 subplots)
+  \item which kernel gives the best test accuracy?
+  \item which kernel has the most complex decision boundary?
+  \item is there evidence of overfitting for any kernel?
+\end{enumerate}
+\end{exercise}
+
+\begin{exercise}
+\textbf{kernel matrices.}
+the kernel matrix (or Gram matrix) $K$ has entries $K_{ij} = k(x_i, x_j)$. it captures the similarity structure of ur data as seen through the kernel.
+\begin{enumerate}[leftmargin=*]
+  \item compute the kernel matrix for the RBF kernel: u can use \texttt{sklearn.metrics.pairwise.rbf\_kernel(X\_train, gamma=1.0)}
+  \item visualize it as a heatmap using \texttt{plt.imshow}
+  \item try different values of $\gamma$ (0.1, 1.0, 10.0). how does the kernel matrix change?
+  \item wt does a ``good'' kernel matrix look like for classification? (hint: u want high similarity within classes and low similarity between classes)
+  \item this is super relevant for quantum ML bcs the quantum kernel is literally just another kernel matrix. the whole question is whether the quantum kernel captures useful similarity that classical kernels miss.
+\end{enumerate}
+\end{exercise}
+
+\subsection{precomputed kernels}
+
+in quantum ML, we'll compute the kernel matrix on the quantum computer and then feed it to a classical SVM. sklearn supports this with the \texttt{precomputed} kernel option.
+
+\begin{exercise}
+\textbf{SVM with precomputed kernel.}
+this exercise practices the exact workflow we'll use in lab 5 with quantum kernels.
+\begin{enumerate}[leftmargin=*]
+  \item compute the RBF kernel matrix for the training data: $K_{\text{train}} = k(X_{\text{train}}, X_{\text{train}})$
+  \item compute the test kernel matrix: $K_{\text{test}} = k(X_{\text{test}}, X_{\text{train}})$ (note: test vs train, not test vs test!)
+  \item train an SVM with precomputed kernel: \texttt{SVC(kernel='precomputed')}
+  \item call \texttt{.fit(K\_train, y\_train)}
+  \item predict using \texttt{.predict(K\_test)}
+  \item verify that the accuracy is the same as using \texttt{SVC(kernel='rbf')} directly
+\end{enumerate}
+
+wt u just did: computed the kernel matrix separately and fed it to the SVM. in lab 5, we'll replace the RBF kernel computation with a quantum kernel computation. the SVM part stays exactly the same.
+\end{exercise}
+
+\section{cross-validation}
+
+never evaluate ur model on the training data only. that's a recipe for fooling urself.
+
+\begin{definition}
+\textbf{$k$-fold cross-validation} splits the training data into $k$ equal folds. for each fold $i$: train on all folds except $i$, test on fold $i$. report the average performance across all $k$ folds.
+\end{definition}
+
+\begin{exercise}
+\textbf{cross-validation.}
+\begin{enumerate}[leftmargin=*]
+  \item use \texttt{sklearn.model\_selection.cross\_val\_score} to evaluate the RBF SVM with 5-fold cross-validation
+  \item report the mean and standard deviation of the accuracy across folds
+  \item now do cross-validation to select the best hyperparameters. use \texttt{GridSearchCV} with:
+    \begin{itemize}
+      \item \texttt{C}: [0.01, 0.1, 1, 10, 100]
+      \item \texttt{gamma}: [0.01, 0.1, 1, 10]
+    \end{itemize}
+  \item wt r the best $C$ and $\gamma$ values?
+  \item train a final model with these best parameters and evaluate on the held-out test set
+  \item is the test accuracy similar to the cross-validation accuracy? if not, u might have a problem.
+\end{enumerate}
+\end{exercise}
+
+\section{beyond SVM: other classifiers for comparison}
+
+\begin{exercise}
+\textbf{classifier comparison.}
+train these classifiers on the iris data and compare:
+\begin{enumerate}[leftmargin=*]
+  \item logistic regression: \texttt{LogisticRegression()} from \texttt{sklearn.linear\_model}
+  \item $k$-nearest neighbors: \texttt{KNeighborsClassifier(n\_neighbors=5)} from \texttt{sklearn.neighbors}
+  \item decision tree: \texttt{DecisionTreeClassifier(max\_depth=3)} from \texttt{sklearn.tree}
+  \item random forest: \texttt{RandomForestClassifier(n\_estimators=100)} from \texttt{sklearn.ensemble}
+  \item RBF SVM (ur best from above)
+\end{enumerate}
+
+for each:
+\begin{itemize}[leftmargin=*]
+  \item run 5-fold cross-validation
+  \item report mean accuracy $\pm$ std
+  \item visualize the decision boundary
+\end{itemize}
+
+create a bar plot comparing all classifiers. which one wins?
+\end{exercise}
+
+\section{feature engineering and dimensionality}
+
+this section connects classical feature engineering to quantum feature maps.
+
+\begin{exercise}
+\textbf{feature maps.}
+\begin{enumerate}[leftmargin=*]
+  \item take the 2D iris data (petal length, petal width)
+  \item create polynomial features up to degree 2 using \texttt{sklearn.preprocessing.PolynomialFeatures(degree=2)}. this maps $(x_1, x_2) \to (1, x_1, x_2, x_1^2, x_1 x_2, x_2^2)$.
+  \item train a \textit{linear} SVM on the expanded features
+  \item compare its accuracy with the polynomial kernel SVM (degree 2) on the original features. they should be similar!
+  \item this is the kernel trick in action: the polynomial kernel SVM is implicitly doing wt u just did explicitly.
+  \item now try: wt if u used all 4 iris features instead of just 2? does accuracy improve?
+  \item with all 4 features, how does the linear SVM compare to the RBF SVM?
+\end{enumerate}
+
+the takeaway: feature maps and kernels r two sides of the same coin. quantum feature maps will encode classical data into quantum states, creating a kernel in an exponentially large Hilbert space.
+\end{exercise}
+
+\section{the full pipeline}
+
+\begin{exercise}
+\textbf{putting it all together.}
+build a complete ML pipeline for the binary iris classification task:
+\begin{enumerate}[leftmargin=*]
+  \item load and preprocess data (standardize, split)
+  \item use \texttt{GridSearchCV} to find the best SVM hyperparameters
+  \item train the final model
+  \item evaluate on the test set
+  \item compute and display the confusion matrix using \texttt{sklearn.metrics.confusion\_matrix}
+  \item compute precision, recall, and F1 score using \texttt{classification\_report}
+  \item visualize the decision boundary of the final model
+\end{enumerate}
+
+record the following numbers --- u'll need them in lab 5:
+\begin{itemize}[leftmargin=*]
+  \item best classical SVM test accuracy: \_\_\_\_\_
+  \item best kernel type: \_\_\_\_\_
+  \item best $C$: \_\_\_\_\_
+  \item best $\gamma$ (if RBF): \_\_\_\_\_
+\end{itemize}
+\end{exercise}
+
+\section{connecting to quantum ML}
+
+\begin{exercise}
+\textbf{reflection.}
+think about and write brief answers to these questions:
+\begin{enumerate}[leftmargin=*]
+  \item in the kernel trick, we compute $k(x, x') = \phi(x) \cdot \phi(x')$ without computing $\phi$ explicitly. in quantum ML, $\phi(x)$ is a quantum state $\ket{\phi(x)}$ and the kernel is $k(x, x') = |\braket{\phi(x)|\phi(x')}|^2$. why might a quantum feature map $\phi$ be more powerful than a classical one?
+  \item the RBF kernel maps to infinite dimensions. the quantum kernel maps to $2^n$ dimensions (for $n$ qubits). is the quantum kernel always better? wt factors matter?
+  \item wt's the bottleneck in computing a quantum kernel matrix? (hint: think about how many circuit evaluations u need for an $m \times m$ kernel matrix)
+  \item based on ur classical results, wt accuracy should the quantum classifier aim for to be considered ``useful''?
+\end{enumerate}
+\end{exercise}
+
+\section{submission}
+
+submit a jupyter notebook with:
+\begin{itemize}[leftmargin=*]
+  \item all exercises completed with code and output
+  \item decision boundary plots for all classifiers
+  \item the comparison bar plot
+  \item the recorded classical baseline numbers
+  \item ur reflection answers
+\end{itemize}
+
+these results r ur classical baselines for lab 5. save ur trained models and preprocessing steps --- u'll need them.
+
+\end{document}
