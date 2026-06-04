@@ -1,0 +1,352 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{mathptmx}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{braket}
+\usepackage{tikz}
+\usepackage{quantikz}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{xcolor}
+
+\definecolor{circuitblue}{RGB}{40,80,160}
+\hypersetup{colorlinks=true,linkcolor=circuitblue,urlcolor=circuitblue,citecolor=circuitblue}
+
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}[section]
+\newtheorem{example}{Example}[section]
+
+\theoremstyle{remark}
+\newtheorem*{intuition}{Intuition}
+\newtheorem*{keypoint}{Key Point}
+
+\newcounter{exercise}[section]
+\newenvironment{exercise}{\refstepcounter{exercise}\par\medskip\noindent\textbf{Exercise \theexercise.}\rmfamily}{\medskip}
+
+\pagestyle{plain}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{6pt}
+
+\begin{document}
+
+{\LARGE \textbf{Lab 3: Noise in Quantum Computers}}\\[8pt]
+{\large QML}\\[12pt]
+\hrule
+
+\vspace{16pt}
+
+\section{introduction}
+
+real quantum computers r noisy. like, really noisy. every gate u apply has some probability of error, qubits lose their quantum state over time (decoherence), and measurements r not perfectly accurate. this matters a lot for quantum ML bcs our variational circuits will need to run on real hardware eventually.
+
+in this lab u'll learn to:
+\begin{itemize}[leftmargin=*]
+  \item simulate different types of noise using qiskit Aer
+  \item compare ideal vs noisy circuit execution
+  \item understand the main error channels (bit flip, phase flip, depolarizing, amplitude damping)
+  \item implement basic error mitigation techniques (ZNE and measurement error mitigation)
+\end{itemize}
+
+\begin{keypoint}
+we r not doing full quantum error \textit{correction} here (that requires way more qubits). instead, we're doing error \textit{mitigation} --- clever classical post-processing tricks that reduce the impact of noise without adding extra qubits.
+\end{keypoint}
+
+\section{noise channels}
+
+\subsection{types of noise}
+
+the main noise channels u need to know:
+
+\begin{definition}
+the \textbf{bit flip channel} flips $\ket{0} \leftrightarrow \ket{1}$ with probability $p$. it's described by:
+\[
+\mathcal{E}(\rho) = (1-p)\rho + p X\rho X
+\]
+\end{definition}
+
+\begin{definition}
+the \textbf{phase flip channel} (dephasing) applies a Z error with probability $p$:
+\[
+\mathcal{E}(\rho) = (1-p)\rho + p Z\rho Z
+\]
+\end{definition}
+
+\begin{definition}
+the \textbf{depolarizing channel} replaces the state with the maximally mixed state with probability $p$:
+\[
+\mathcal{E}(\rho) = (1-p)\rho + \frac{p}{3}(X\rho X + Y\rho Y + Z\rho Z)
+\]
+this is the ``everything goes wrong equally'' model and it's the most commonly used for benchmarking.
+\end{definition}
+
+\begin{definition}
+the \textbf{amplitude damping channel} models energy loss (like a qubit decaying from $\ket{1}$ to $\ket{0}$). it's described by Kraus operators:
+\[
+K_0 = \begin{pmatrix} 1 & 0 \\ 0 & \sqrt{1-\gamma} \end{pmatrix}, \quad
+K_1 = \begin{pmatrix} 0 & \sqrt{\gamma} \\ 0 & 0 \end{pmatrix}
+\]
+where $\gamma$ is the damping probability.
+\end{definition}
+
+\begin{intuition}
+bit flip = classical error (like a noisy communication channel). phase flip = purely quantum error (no classical analogue). depolarizing = uniform random error. amplitude damping = energy dissipation (most physically realistic). in practice, real devices have a mix of all of these.
+\end{intuition}
+
+\begin{exercise}
+\textbf{visualizing noise channels.}
+\begin{enumerate}[leftmargin=*]
+  \item prepare the state $\ket{+} = H\ket{0}$ and apply each noise channel (bit flip, phase flip, depolarizing) with $p = 0.1$.
+  \item for each channel, compute the output density matrix using the qiskit Aer density matrix simulator.
+  \item use qiskit's \texttt{plot\_bloch\_multivector} to visualize the state before and after noise.
+  \item which noise channel has the biggest effect on the $\ket{+}$ state? why does this make sense?
+
+  to add noise in qiskit:
+  \begin{itemize}[leftmargin=*]
+    \item import \texttt{NoiseModel} from \texttt{qiskit\_aer.noise}
+    \item import the error types: \texttt{depolarizing\_error}, \texttt{pauli\_error}, etc.
+    \item create a noise model and add errors to specific gates
+    \item pass the noise model to the Aer simulator when u run
+  \end{itemize}
+\end{enumerate}
+\end{exercise}
+
+\section{building noise models}
+
+\subsection{custom noise models in qiskit}
+
+here's the workflow for adding noise:
+\begin{enumerate}[leftmargin=*]
+  \item create a \texttt{NoiseModel()} object
+  \item create error objects (e.g., \texttt{depolarizing\_error(p, num\_qubits)})
+  \item add them to the noise model: \texttt{noise\_model.add\_all\_qubit\_quantum\_error(error, ['gate\_name'])}
+  \item run ur circuit with the noisy simulator
+\end{enumerate}
+
+u can add different error rates to different gates. typically 2-qubit gates (like CNOT) have much higher error rates than single-qubit gates. on real IBM devices, single-qubit error rates r around $10^{-3}$ to $10^{-4}$ and CNOT error rates r around $10^{-2}$.
+
+\begin{exercise}
+\textbf{noisy bell state.}
+\begin{enumerate}[leftmargin=*]
+  \item build the bell state circuit from lab 1 (H + CNOT + measure)
+  \item run it with no noise (ideal). record the counts.
+  \item create a noise model with:
+    \begin{itemize}
+      \item depolarizing error $p = 0.01$ on single-qubit gates
+      \item depolarizing error $p = 0.05$ on CNOT gates
+    \end{itemize}
+  \item run the same circuit with this noise model. record the counts.
+  \item compare: in the ideal case u should get only 00 and 11. wt extra outcomes appear with noise? wt r their probabilities?
+  \item increase the CNOT error rate to $p = 0.1, 0.2, 0.3$. plot the probability of getting the ``wrong'' outcomes (01 or 10) as a function of the error rate.
+\end{enumerate}
+\end{exercise}
+
+\begin{exercise}
+\textbf{noisy GHZ state.}
+\begin{enumerate}[leftmargin=*]
+  \item build GHZ circuits for $n = 3, 4, 5, 6, 7$ qubits
+  \item run each one with the realistic noise model (single-qubit error $= 0.001$, CNOT error $= 0.01$)
+  \item for each $n$, compute the fidelity of the noisy output with the ideal GHZ state
+  \item plot fidelity vs $n$. u should see it drop as $n$ increases.
+  \item explain why more qubits $=$ more noise. roughly how does fidelity scale with the number of CNOT gates?
+\end{enumerate}
+
+the circuit for 4-qubit GHZ:
+
+\begin{center}
+\begin{quantikz}
+\lstick{$q_0$} & \gate{H} & \ctrl{1} & \qw & \qw & \meter{} \\
+\lstick{$q_1$} & \qw & \targ{} & \ctrl{1} & \qw & \meter{} \\
+\lstick{$q_2$} & \qw & \qw & \targ{} & \ctrl{1} & \meter{} \\
+\lstick{$q_3$} & \qw & \qw & \qw & \targ{} & \meter{}
+\end{quantikz}
+\end{center}
+\end{exercise}
+
+\section{amplitude damping and $T_1$ decay}
+
+amplitude damping is the most physically motivated noise model. it represents the qubit losing energy over time ($T_1$ relaxation).
+
+the probability of decay depends on the gate duration $t$ and the $T_1$ time:
+\[
+\gamma = 1 - e^{-t/T_1}
+\]
+
+typical IBM quantum devices have $T_1 \approx 100\,\mu\text{s}$ and single-qubit gate times of $\approx 35\,\text{ns}$, so the error per gate is small. but circuits with many gates accumulate error.
+
+\begin{exercise}
+\textbf{$T_1$ decay simulation.}
+\begin{enumerate}[leftmargin=*]
+  \item prepare $\ket{1}$ (apply X to $\ket{0}$)
+  \item add $k$ identity gates (each representing some time duration)
+  \item add amplitude damping noise with $\gamma = 0.01$ per gate
+  \item measure and compute $P(\ket{1})$
+  \item repeat for $k = 0, 10, 20, 50, 100, 200$
+  \item plot $P(\ket{1})$ vs $k$. u should see exponential decay.
+  \item fit an exponential $P = e^{-k/k_0}$ and extract $k_0$. compare with $1/\gamma$.
+\end{enumerate}
+
+this is essentially how $T_1$ is measured on real devices!
+\end{exercise}
+
+\section{zero-noise extrapolation (ZNE)}
+
+ZNE is one of the simplest and most effective error mitigation techniques. the idea is:
+\begin{enumerate}[leftmargin=*]
+  \item run ur circuit at several different noise levels
+  \item extrapolate back to zero noise
+\end{enumerate}
+
+but wait --- u can't just turn down the noise on a real device. the trick is to \textit{increase} the noise by stretching the circuit (adding more gates that don't change the ideal computation but do add noise).
+
+\subsection{noise amplification by unitary folding}
+
+the simplest way to amplify noise: replace each gate $G$ with $G \cdot G^\dagger \cdot G$. this does the same thing as $G$ (bcs $G^\dagger G = I$) but uses 3x the gates, so it has 3x the noise. u can generalize: $G \to G(G^\dagger G)^k$ gives a noise scale factor of $2k+1$.
+
+here's wt unitary folding looks like for a simple circuit:
+
+\begin{center}
+original circuit:
+
+\begin{quantikz}
+\lstick{$q_0$} & \gate{H} & \ctrl{1} & \meter{} \\
+\lstick{$q_1$} & \qw & \targ{} & \meter{}
+\end{quantikz}
+
+\vspace{8pt}
+folded once ($3\times$ noise):
+
+\begin{quantikz}
+\lstick{$q_0$} & \gate{H} & \ctrl{1} & \ctrl{1} & \gate{H} & \gate{H} & \ctrl{1} & \meter{} \\
+\lstick{$q_1$} & \qw & \targ{} & \targ{} & \qw & \qw & \targ{} & \meter{}
+\end{quantikz}
+\end{center}
+
+\begin{exercise}
+\textbf{implementing ZNE.}
+\begin{enumerate}[leftmargin=*]
+  \item build a simple circuit: prepare $\ket{+}$ and measure the expectation value of $Z$ (should be 0 ideally).
+  \item add depolarizing noise with $p = 0.05$ on all gates.
+  \item run the circuit normally (noise factor $= 1$). record $\braket{Z}$.
+  \item fold the circuit once (noise factor $= 3$): for each gate $G$, replace it with $G \cdot G^\dagger \cdot G$. record $\braket{Z}$.
+  \item fold twice (noise factor $= 5$). record $\braket{Z}$.
+  \item now extrapolate to noise factor $= 0$:
+    \begin{itemize}
+      \item u have data points at noise factors 1, 3, 5
+      \item fit a line (or quadratic) through these points
+      \item evaluate the fit at noise factor $= 0$
+    \end{itemize}
+  \item compare ur extrapolated value with the ideal value. how much closer r u?
+\end{enumerate}
+
+hint for folding in qiskit: create a new circuit. for each gate in the original circuit, add the gate, then its inverse, then the gate again. the inverse of H is H. the inverse of CNOT is CNOT. the inverse of $R_y(\theta)$ is $R_y(-\theta)$.
+\end{exercise}
+
+\begin{exercise}
+\textbf{ZNE on a bell state.}
+apply ZNE to the bell state circuit:
+\begin{enumerate}[leftmargin=*]
+  \item measure $\braket{ZZ}$ on the bell state (should be $+1$ ideally)
+  \item run at noise factors 1, 3, 5, 7
+  \item extrapolate to zero noise using:
+    \begin{itemize}
+      \item linear fit (using noise factors 1 and 3 only)
+      \item quadratic fit (using noise factors 1, 3, and 5)
+    \end{itemize}
+  \item which fit gives a better estimate? plot ur data points and both fits.
+  \item wt happens if u try noise factors that r too large (e.g., 15, 21)? why does ZNE break down at very high noise?
+\end{enumerate}
+\end{exercise}
+
+\section{measurement error mitigation}
+
+another common source of error: the measurement itself isn't perfect. on real hardware, u might measure $\ket{0}$ when the qubit is actually in $\ket{1}$, or vice versa.
+
+the idea behind measurement error mitigation:
+\begin{enumerate}[leftmargin=*]
+  \item characterize the measurement errors by preparing known states and measuring them
+  \item build a \textit{calibration matrix} $M$ where $M_{ij} = P(\text{measure } i \mid \text{prepared } j)$
+  \item invert this matrix to correct future measurements: $\vec{p}_{\text{corrected}} = M^{-1}\vec{p}_{\text{measured}}$
+\end{enumerate}
+
+for 1 qubit, the calibration matrix is:
+\[
+M = \begin{pmatrix}
+P(0|0) & P(0|1) \\
+P(1|0) & P(1|1)
+\end{pmatrix}
+\]
+
+\begin{exercise}
+\textbf{measurement error mitigation.}
+\begin{enumerate}[leftmargin=*]
+  \item create a noise model that only has measurement errors:
+    \begin{itemize}
+      \item $P(\text{measure 0} | \text{state is 1}) = 0.05$ (5\% chance of 1 being read as 0)
+      \item $P(\text{measure 1} | \text{state is 0}) = 0.03$ (3\% chance of 0 being read as 1)
+    \end{itemize}
+  \item build the calibration matrix by:
+    \begin{itemize}
+      \item preparing $\ket{0}$ and measuring many times $\to$ gives column 0 of $M$
+      \item preparing $\ket{1}$ and measuring many times $\to$ gives column 1 of $M$
+    \end{itemize}
+  \item now prepare the state $\ket{+}$ and measure. compare:
+    \begin{itemize}
+      \item ideal result (no noise)
+      \item noisy result (with measurement error)
+      \item mitigated result (apply $M^{-1}$)
+    \end{itemize}
+  \item extend this to 2 qubits. how big is the calibration matrix now? how many calibration circuits do u need?
+\end{enumerate}
+\end{exercise}
+
+\begin{exercise}
+\textbf{combining noise and mitigation.}
+this one puts everything together:
+\begin{enumerate}[leftmargin=*]
+  \item build a 3-qubit GHZ circuit
+  \item add a realistic noise model: depolarizing ($p = 0.005$ single, $p = 0.02$ CNOT) plus measurement error (3\%)
+  \item run and record the raw noisy results
+  \item apply measurement error mitigation
+  \item apply ZNE (noise factors 1, 3, 5)
+  \item compare all four results: ideal, noisy, measurement-mitigated only, ZNE + measurement-mitigated
+  \item which technique helps more? does combining them help even more?
+\end{enumerate}
+
+\begin{center}
+\begin{quantikz}
+\lstick{$q_0$} & \gate{H} & \ctrl{1} & \qw & \qw & \meter{} \\
+\lstick{$q_1$} & \qw & \targ{} & \ctrl{1} & \qw & \meter{} \\
+\lstick{$q_2$} & \qw & \qw & \targ{} & \qw & \meter{}
+\end{quantikz}
+\end{center}
+\end{exercise}
+
+\section{noise and circuit depth}
+
+\begin{exercise}
+\textbf{depth vs fidelity.}
+this exercise builds intuition for why shallow circuits r so important in quantum ML:
+\begin{enumerate}[leftmargin=*]
+  \item build circuits of increasing depth: create a random circuit using repeated layers of $R_y(\theta)$ on each qubit followed by a CNOT entangling layer. use 4 qubits.
+  \item run each circuit with a realistic noise model and compute the output state fidelity.
+  \item plot fidelity vs circuit depth (number of layers).
+  \item at wt depth does fidelity drop below 0.5? below 0.9?
+  \item now imagine u r designing a variational circuit for ML. based on ur findings, wt's a reasonable maximum depth?
+\end{enumerate}
+
+this is one of the key constraints in quantum ML: ur variational circuits can't be too deep or the noise will destroy all the information. keep this in mind for lab 5.
+\end{exercise}
+
+\section{submission}
+
+submit a jupyter notebook with:
+\begin{itemize}[leftmargin=*]
+  \item all exercises completed
+  \item plots comparing ideal vs noisy vs mitigated results
+  \item the depth vs fidelity analysis
+  \item a short reflection: how does noise affect the feasibility of quantum ML on near-term devices?
+\end{itemize}
+
+\end{document}
