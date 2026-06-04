@@ -1,0 +1,356 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{mathptmx}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{braket}
+\usepackage{tikz}
+\usepackage{quantikz}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{xcolor}
+
+\definecolor{circuitblue}{RGB}{40,80,160}
+\hypersetup{colorlinks=true,linkcolor=circuitblue,urlcolor=circuitblue,citecolor=circuitblue}
+
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}[section]
+\newtheorem{example}{Example}[section]
+
+\theoremstyle{remark}
+\newtheorem*{intuition}{Intuition}
+\newtheorem*{keypoint}{Key Point}
+
+\newcounter{exercise}[section]
+\newenvironment{exercise}{\refstepcounter{exercise}\par\medskip\noindent\textbf{Exercise \theexercise.}\rmfamily}{\medskip}
+
+\pagestyle{plain}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{6pt}
+
+\begin{document}
+
+{\LARGE \textbf{Lab 2: Quantum Algorithms}}\\[8pt]
+{\large QML}\\[12pt]
+\hrule
+
+\vspace{16pt}
+
+\section{introduction}
+
+in this lab we r implementing three foundational quantum algorithms: Deutsch-Jozsa, Bernstein-Vazirani, and Grover's search. these r the algorithms that first showed quantum computers can beat classical ones at certain tasks.
+
+the point isn't just to run them --- u need to understand the oracle pattern that shows up in all three, bcs it's the same pattern we'll see later in quantum machine learning.
+
+by the end of this lab u should be able to:
+\begin{itemize}[leftmargin=*]
+  \item build oracle circuits for each algorithm
+  \item implement and run all three algorithms in qiskit
+  \item understand the query complexity advantage
+  \item verify ur results against classical solutions
+\end{itemize}
+
+\begin{keypoint}
+all three algorithms follow the same template: prepare superposition $\to$ apply oracle $\to$ apply some transformation $\to$ measure. the magic is in how the oracle ``kicks back'' phase information into the superposition.
+\end{keypoint}
+
+\section{the oracle pattern}
+
+an oracle $U_f$ implements a classical function $f: \{0,1\}^n \to \{0,1\}$ as a quantum gate. the standard way to do this is:
+\[
+U_f\ket{x}\ket{y} = \ket{x}\ket{y \oplus f(x)}
+\]
+
+but there's a trick. if u set the ancilla qubit to $\ket{-} = \frac{1}{\sqrt{2}}(\ket{0}-\ket{1})$, then:
+\[
+U_f\ket{x}\ket{-} = (-1)^{f(x)}\ket{x}\ket{-}
+\]
+
+this is called \textbf{phase kickback}. the function value gets encoded as a phase on the input register, and the ancilla doesn't change. this is incredibly useful.
+
+\begin{exercise}
+\textbf{phase kickback warmup.}
+build a 2-qubit circuit where qubit 0 is the input and qubit 1 is the ancilla:
+\begin{enumerate}[leftmargin=*]
+  \item prepare qubit 1 in the $\ket{-}$ state (apply X then H)
+  \item apply H to qubit 0 to put it in superposition
+  \item apply CNOT with control 0 and target 1 (this implements $f(x)=x$)
+  \item apply H to qubit 0
+  \item measure qubit 0
+\end{enumerate}
+
+the circuit looks like this:
+
+\begin{center}
+\begin{quantikz}
+\lstick{$q_0: \ket{0}$} & \gate{H} & \ctrl{1} & \gate{H} & \meter{} \\
+\lstick{$q_1: \ket{0}$} & \gate{X} & \targ{} & \qw & \qw
+\end{quantikz}
+\end{center}
+
+wt do u measure on qubit 0? run it 1024 times. explain why u get this result using phase kickback.
+\end{exercise}
+
+\section{Deutsch-Jozsa algorithm}
+
+\subsection{the problem}
+
+u have a black-box function $f: \{0,1\}^n \to \{0,1\}$. u r promised that $f$ is either:
+\begin{itemize}[leftmargin=*]
+  \item \textbf{constant}: $f(x) = 0$ for all $x$, or $f(x) = 1$ for all $x$
+  \item \textbf{balanced}: $f(x) = 0$ for exactly half the inputs, $f(x) = 1$ for the other half
+\end{itemize}
+
+classically u need up to $2^{n-1}+1$ queries to decide. quantum: 1 query. that's an exponential speedup.
+
+\subsection{the algorithm}
+
+\begin{center}
+\begin{quantikz}
+\lstick{$\ket{0}^{\otimes n}$} & \gate{H^{\otimes n}} & \gate{U_f} & \gate{H^{\otimes n}} & \meter{} \\
+\lstick{$\ket{1}$} & \gate{H} & \qw & \qw & \qw
+\end{quantikz}
+\end{center}
+
+steps:
+\begin{enumerate}[leftmargin=*]
+  \item start with $n$ qubits in $\ket{0}$ and 1 ancilla in $\ket{1}$
+  \item apply H to everything
+  \item apply the oracle $U_f$
+  \item apply H to the $n$ input qubits
+  \item measure the input qubits
+\end{enumerate}
+
+if u measure all zeros $\to$ $f$ is constant. anything else $\to$ $f$ is balanced.
+
+here's the 2-qubit version more explicitly:
+
+\begin{center}
+\begin{quantikz}
+\lstick{$q_0$} & \gate{H} & \qw & \gate[2]{U_f} & \qw & \gate{H} & \meter{} \\
+\lstick{$q_1$} & \gate{H} & \qw & \qw & \qw & \gate{H} & \meter{} \\
+\lstick{$q_2$} & \gate{X} & \gate{H} & \qw & \qw & \qw & \qw
+\end{quantikz}
+\end{center}
+
+\begin{exercise}
+\textbf{Deutsch-Jozsa oracles.}
+build oracle circuits for the following functions on 2 input qubits (plus 1 ancilla):
+\begin{enumerate}[leftmargin=*]
+  \item $f(x) = 0$ for all $x$ (constant) --- this one's easy, it's literally the identity
+  \item $f(x) = 1$ for all $x$ (constant) --- just flip the ancilla
+  \item $f(x_0, x_1) = x_0 \oplus x_1$ (balanced) --- think about wt gate does XOR
+  \item $f(x_0, x_1) = x_0$ (balanced) --- even simpler
+\end{enumerate}
+
+for each oracle: wrap it in the full Deutsch-Jozsa algorithm (H's, oracle, H's, measure). run it and verify u get the correct answer (all-zeros for constant, not-all-zeros for balanced).
+\end{exercise}
+
+\begin{exercise}
+\textbf{scaling Deutsch-Jozsa.}
+write a function that creates a random balanced oracle on $n$ qubits. here's one way to do it:
+\begin{itemize}[leftmargin=*]
+  \item randomly pick a bit string $s \in \{0,1\}^n$ (not all zeros)
+  \item the oracle computes $f(x) = s \cdot x \mod 2$ (inner product mod 2)
+  \item implement this using CNOT gates: for each bit $i$ where $s_i = 1$, apply CNOT from qubit $i$ to the ancilla
+\end{itemize}
+
+test ur Deutsch-Jozsa implementation for $n = 3, 4, 5, 6$. does it always correctly identify balanced vs constant?
+\end{exercise}
+
+\section{Bernstein-Vazirani algorithm}
+
+\subsection{the problem}
+
+u have an oracle that computes $f(x) = s \cdot x \mod 2$ for some hidden bit string $s$. u want to find $s$.
+
+classically: u need $n$ queries (try each standard basis vector). quantumly: 1 query.
+
+\subsection{the algorithm}
+
+here's the beautiful thing: the circuit is \textit{exactly the same} as Deutsch-Jozsa. the only difference is the oracle and how u interpret the measurement result.
+
+\begin{center}
+\begin{quantikz}
+\lstick{$\ket{0}^{\otimes n}$} & \gate{H^{\otimes n}} & \gate{U_f} & \gate{H^{\otimes n}} & \meter{} \\
+\lstick{$\ket{1}$} & \gate{H} & \qw & \qw & \qw
+\end{quantikz}
+\end{center}
+
+when u measure the input qubits, u directly get the hidden string $s$. that's it. one shot.
+
+for example, if $s = 101$ and we have 3 input qubits:
+
+\begin{center}
+\begin{quantikz}
+\lstick{$q_0$} & \gate{H} & \ctrl{3} & \gate{H} & \meter{} \\
+\lstick{$q_1$} & \gate{H} & \qw & \gate{H} & \meter{} \\
+\lstick{$q_2$} & \gate{H} & \ctrl{1} & \gate{H} & \meter{} \\
+\lstick{$q_3$} & \gate{X} & \targ{} & \qw & \qw
+\end{quantikz}
+\end{center}
+
+notice the oracle: CNOT from qubit 0 to ancilla (bcs $s_0 = 1$), nothing for qubit 1 (bcs $s_1 = 0$), CNOT from qubit 2 to ancilla (bcs $s_2 = 1$).
+
+\begin{exercise}
+\textbf{Bernstein-Vazirani.}
+\begin{enumerate}[leftmargin=*]
+  \item implement the oracle for $s = 1011$ (4 input qubits + 1 ancilla). the oracle should apply CNOT from qubit $i$ to the ancilla whenever $s_i = 1$.
+  \item wrap it in the full BV algorithm and run it. verify u recover $s = 1011$.
+  \item write a function \texttt{bv\_oracle(s)} that takes a bit string and returns a qiskit circuit implementing the oracle.
+  \item write a function \texttt{run\_bv(s)} that runs the full algorithm and returns the recovered string.
+  \item test with at least 5 different hidden strings of varying lengths.
+  \item how many shots do u need? theoretically u should only need 1 shot. try it with 1 shot vs 100 shots. does it always work with 1 shot on the simulator?
+\end{enumerate}
+\end{exercise}
+
+\section{Grover's search algorithm}
+
+\subsection{the problem}
+
+u have an unstructured database of $N = 2^n$ items, and u want to find the one item that satisfies some condition (marked by an oracle). classically: $O(N)$ queries. Grover's: $O(\sqrt{N})$ queries.
+
+this isn't an exponential speedup like Deutsch-Jozsa, but it's provably optimal for unstructured search, which is pretty sick.
+
+\subsection{the algorithm}
+
+Grover's has two main pieces that u repeat:
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{oracle} $U_\omega$: flips the phase of the target state. $U_\omega\ket{x} = (-1)^{f(x)}\ket{x}$
+  \item \textbf{diffuser} $U_s$: reflects about the uniform superposition. $U_s = 2\ket{s}\bra{s} - I$ where $\ket{s} = H^{\otimes n}\ket{0}^{\otimes n}$
+\end{enumerate}
+
+the full algorithm:
+\begin{enumerate}[leftmargin=*]
+  \item apply $H^{\otimes n}$ to create uniform superposition
+  \item repeat $\approx \frac{\pi}{4}\sqrt{N}$ times: apply oracle, then apply diffuser
+  \item measure
+\end{enumerate}
+
+\subsection{the diffuser circuit}
+
+the diffuser for 2 qubits looks like this:
+
+\begin{center}
+\begin{quantikz}
+\lstick{$q_0$} & \gate{H} & \gate{X} & \ctrl{1} & \gate{X} & \gate{H} & \qw \\
+\lstick{$q_1$} & \gate{H} & \gate{X} & \gate{Z} & \gate{X} & \gate{H} & \qw
+\end{quantikz}
+\end{center}
+
+for more qubits, the middle part becomes a multi-controlled Z gate. u can implement this using a multi-controlled X (Toffoli-like) sandwiched between H gates on the target.
+
+for 3 qubits the diffuser is:
+
+\begin{center}
+\begin{quantikz}
+\lstick{$q_0$} & \gate{H} & \gate{X} & \qw & \gate{X} & \gate{H} & \qw \\
+\lstick{$q_1$} & \gate{H} & \gate{X} & \qw & \gate{X} & \gate{H} & \qw \\
+\lstick{$q_2$} & \gate{H} & \gate{X} & \gate{Z} & \gate{X} & \gate{H} & \qw
+\end{quantikz}
+\end{center}
+
+\begin{keypoint}
+the diffuser is the same regardless of wt u're searching for. only the oracle changes.
+\end{keypoint}
+
+\begin{exercise}
+\textbf{2-qubit Grover's.}
+let's search for the state $\ket{11}$ among 4 possible states.
+\begin{enumerate}[leftmargin=*]
+  \item build the oracle for $\ket{11}$: this should flip the phase of $\ket{11}$ only. u can do this with a controlled-Z gate (in qiskit: \texttt{.cz(0,1)}).
+  \item build the diffuser: H on both, X on both, CZ, X on both, H on both.
+  \item put it all together: H on both qubits, then oracle, then diffuser, then measure.
+  \item run it. u should get $\ket{11}$ with probability 1 (or close to it).
+  \item how many Grover iterations did u use? how many does the formula $\frac{\pi}{4}\sqrt{N}$ predict?
+\end{enumerate}
+\end{exercise}
+
+\begin{exercise}
+\textbf{3-qubit Grover's.}
+now search for a target state in a space of $N = 8$.
+\begin{enumerate}[leftmargin=*]
+  \item build an oracle for the target state $\ket{101}$. hint: use X gates to flip the qubits that should be $\ket{0}$, apply a multi-controlled Z, then unflip.
+  \item build the 3-qubit diffuser.
+  \item the formula says u need $\approx \frac{\pi}{4}\sqrt{8} \approx 2.2$ iterations, so try 2 iterations.
+  \item run with 2048 shots. wt probability do u measure $\ket{101}$?
+  \item try with 1, 2, and 3 iterations. which gives the highest probability? plot the success probability vs number of iterations.
+\end{enumerate}
+
+here's wt the oracle for $\ket{101}$ looks like (the X gates flip qubits that should be 0):
+
+\begin{center}
+\begin{quantikz}
+\lstick{$q_0$} & \qw & \ctrl{1} & \qw & \qw \\
+\lstick{$q_1$} & \gate{X} & \ctrl{1} & \gate{X} & \qw \\
+\lstick{$q_2$} & \qw & \gate{Z} & \qw & \qw
+\end{quantikz}
+\end{center}
+
+(this is a simplified version --- the multi-controlled Z in the middle marks the $\ket{101}$ state)
+\end{exercise}
+
+\begin{exercise}
+\textbf{general Grover's implementation.}
+write a reusable Grover's implementation:
+\begin{enumerate}[leftmargin=*]
+  \item write a function \texttt{grover\_oracle(target, n)} that creates an oracle circuit marking the target bitstring
+  \item write a function \texttt{diffuser(n)} that creates the $n$-qubit diffuser
+  \item write a function \texttt{grovers(target, n, num\_iterations)} that assembles the full algorithm
+  \item test with various targets on 2, 3, and 4 qubits
+  \item for each $n$, find the optimal number of iterations experimentally and compare with $\frac{\pi}{4}\sqrt{2^n}$
+\end{enumerate}
+\end{exercise}
+
+\begin{exercise}
+\textbf{Grover's with multiple solutions.}
+wt happens when there r multiple marked items?
+\begin{enumerate}[leftmargin=*]
+  \item modify ur oracle to mark 2 target states (e.g., both $\ket{101}$ and $\ket{110}$)
+  \item run Grover's with varying iterations
+  \item the optimal number of iterations when there r $k$ solutions out of $N$ is $\frac{\pi}{4}\sqrt{N/k}$. verify this experimentally.
+  \item wt goes wrong if u use too many iterations?
+\end{enumerate}
+\end{exercise}
+
+\section{comparison and reflection}
+
+\begin{exercise}
+\textbf{wrap-up.}
+fill in this table:
+
+\begin{center}
+\begin{tabular}{|l|c|c|c|}
+\hline
+\textbf{algorithm} & \textbf{classical queries} & \textbf{quantum queries} & \textbf{speedup} \\
+\hline
+Deutsch-Jozsa & $2^{n-1}+1$ & 1 & ? \\
+\hline
+Bernstein-Vazirani & $n$ & 1 & ? \\
+\hline
+Grover's & $O(N)$ & $O(\sqrt{N})$ & ? \\
+\hline
+\end{tabular}
+\end{center}
+
+answer these questions:
+\begin{enumerate}[leftmargin=*]
+  \item which algorithm gives the biggest speedup? is it a ``useful'' speedup or more of a theoretical curiosity?
+  \item wt's the common pattern across all three algorithms? (think about the role of H gates and phase kickback)
+  \item how does Grover's differ fundamentally from the other two? (hint: it's iterative)
+  \item which of these algorithms is most relevant to machine learning? why? (we'll revisit this in lab 5)
+\end{enumerate}
+\end{exercise}
+
+\section{submission}
+
+submit a jupyter notebook with:
+\begin{itemize}[leftmargin=*]
+  \item all exercises completed with code and output
+  \item circuit diagrams for each algorithm
+  \item the comparison table filled in
+  \item a brief paragraph reflecting on the oracle pattern and how it might connect to ML
+\end{itemize}
+
+\end{document}
